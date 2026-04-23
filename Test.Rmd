@@ -1,0 +1,208 @@
+---
+title: "Assignment 9"
+author: "Sophie Meade"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)#thisone
+
+library(sf)
+library(tidyverse)
+library(spdep) # Creating spatial weights
+library(knitr)
+
+chicago <- st_read("Chicago_2020_sdoh.shp", quiet = TRUE)
+chicago <- st_transform(chicago, 32614)  # UTM Zone 14N
+st_crs(chicago)
+
+class(chicago)
+
+#t-test
+mean(chicago$MEDINC) #56199.94
+
+t.test(chicago$MEDINC, mu = 83730)
+
+#How does the mean median income in Chicago differ from the national avergae?
+
+nb_queen <- poly2nb(chicago, queen = TRUE)
+summary(nb_queen)
+
+coords <- st_coordinates(st_centroid(chicago))
+
+{
+plot(st_geometry(chicago), border = "gray", main = "Queen Contiguity Neighbors")
+plot(nb_queen, coords = coords, add = TRUE, col = "red", lwd = 1)
+}
+
+# All neighbors within 20km (20000 meters)
+nb_20km <- dnearneigh(coords, 0, 20000)
+
+summary(nb_20km)
+
+# Add to data
+
+
+islands_queen <- which(card(nb_queen) == 0)
+
+if (length(islands_queen) > 0) {
+  cat("WARNING: Found", length(islands_queen), "islands (no neighbors):\n")
+  print(chicago$mun_name[islands_queen])
+} else {
+  cat("✓ No islands found - all municipalities have at least one neighbor\n")
+}
+
+coords <- st_coordinates(st_centroid(chicago))
+
+# Calculate all pairwise distances
+k1 <- knn2nb(knearneigh(coords, k = 1))
+critical_threshold <- max(unlist(nbdists(k1, coords)))
+
+cat("Maximum distance to nearest neighbor:", round(critical_threshold/1000, 2), "km\n") #7.45
+cat("This is the MINIMUM distance needed to ensure no islands\n")
+
+# All neighbors within 20km (20000 meters)
+nb_8km <- dnearneigh(coords, 0, 8000)
+
+summary(nb_8km)
+
+# Add to data
+chicago$n_neighbors_8km <- card(nb_8km)
+
+islands_distance <- which(card(nb_8km) == 0)
+
+if (length(islands_distance) > 0) {
+  cat("WARNING: Found", length(islands_distance), "islands (no neighbors):\n")
+  print(chicago$mun_name[islands_distance])
+} else {
+  cat("✓ No islands found - all municipalities have at least one neighbor\n")
+} #no islands for distance!
+
+knn5 <- knn2nb(knearneigh(coords, k = 5))
+
+summary(knn5)
+
+# Verify: everyone has exactly 5 neighbors
+table(card(knn5))
+
+listw_queen <- nb2listw(nb_queen, style = "W")
+listw_rook <- nb2listw(nb_rook, style = "W")
+listw_8km <- nb2listw(nb_8km, style = "W")
+listw_knn5 <- nb2listw(knn5, style = "W")
+
+summary(listw_queen)
+summary(listw_rook)
+summary(listw_8km)
+summary(listw_knn5) #ask about this; where is number of neighbors?
+
+summary(knn5)
+
+islands <- which(card(listw_queen) == 0)
+
+if (length(islands) > 0) {
+  cat("WARNING: Found", length(islands), "islands (no neighbors):\n")
+  print(chicago$mun_name[islands])
+} else {
+  cat("✓ No islands found - all municipalities have at least one neighbor\n")
+}
+
+#OKAY WEIGHTS
+weights_comparison <- tibble(
+  weight_type = c("Queen Contiguity", "Rook Contiguity", 
+                  "8km Distance", "5-Nearest Neighbors"),
+  avg_neighbors = c(
+    mean(card(nb_queen)),
+    mean(card(nb_rook)),
+    mean(card(nb_8km)),
+    5
+  ),
+  min_neighbors = c(
+    min(card(nb_queen)),
+    min(card(nb_rook)),
+    min(card(nb_8km)),
+    5
+  ),
+  max_neighbors = c(
+    max(card(nb_queen)),
+    max(card(nb_rook)),
+    max(card(nb_8km)),
+    5
+  ),
+  is_symmetric = c(
+    is.symmetric.nb(nb_queen),
+    is.symmetric.nb(nb_rook),
+    is.symmetric.nb(nb_8km),
+    is.symmetric.nb(knn5)
+  ),
+  
+  S1 = c(
+    summary(listw_queen)$S1,
+    summary(listw_rook)$S1,
+    summary(listw_8km)$S1,
+    summary(listw_knn5)$S1
+  ),
+  
+  S2 = c(
+    summary(listw_queen)$S2,
+    summary(listw_rook)$S2,
+    summary(listw_8km)$S2,
+    summary(listw_knn5)$S2
+  )
+)
+
+
+kable(weights_comparison, digits = 2,
+      col.names = c("Weight Type", "Mean Neighbors", "Min Neighbors", 
+                    "Max Neighbors", "Symmetric"))
+
+ncol(weights_comparison)
+
+
+
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+
+mean(chicago$MEDINC) #56199.94
+t.test(chicago$MEDINC, mu = 83730)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+{
+plot(st_geometry(chicago), border = "gray", main = "Queen Contiguity Neighbors")
+plot(nb_queen, coords = coords, add = TRUE, col = "red", lwd = 1)
+}
+
+{
+plot(st_geometry(chicago), border = "gray", main = "Rook Contiguity Neighbors")
+plot(nb_rook, coords = coords, add = TRUE, col = "blue", lwd = 1)
+}
+
+kable(weights_comparison, digits = 2,
+      col.names = c("Weight Type", "Mean Neighbors", "Min Neighbors", 
+                    "Max Neighbors", "Symmetric"))
+
+hist(card(nb_queen), main = "Queen", xlab = "# Neighbors", col = "blue")
+hist(card(nb_rook), main = "Rook", xlab = "# Neighbors", col = "green")
+hist(card(nb_8km), main = "8km Distance", xlab = "# Neighbors", col = "red")
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
